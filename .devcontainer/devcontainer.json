@@ -6,7 +6,9 @@
 
 	"runArgs": [
 		"--gpus",
-		"all"
+		"all",
+		"-v",
+		"G:\\code\\pretrain_model_dir:/home/pretrain_model_dir"
 	],
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
