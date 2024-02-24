@@ -1105,22 +1105,40 @@ class QWenLMHeadModel(QWenPreTrainedModel):
         generation_config: Optional[GenerationConfig] = None,
         **kwargs,
     ) -> Tuple[str, HistoryType]:
+        """连续对话的接口
+
+        Args:
+            tokenizer (PreTrainedTokenizer): _description_
+            query (str): _description_
+            history (Optional[HistoryType]): _description_
+            system (str, optional): _description_. Defaults to "You are a helpful assistant.".
+            stream (Optional[bool], optional): _description_. Defaults to _SENTINEL.
+            stop_words_ids (Optional[List[List[int]]], optional): _description_. Defaults to None.
+            generation_config (Optional[GenerationConfig], optional): _description_. Defaults to None.
+
+        Returns:
+            Tuple[str, HistoryType]: _description_
+        """
         generation_config = generation_config if generation_config is not None else self.generation_config
 
+        # 不支持流式输出, 流式输出需要使用 chat_stream
         assert stream is _SENTINEL, _ERROR_STREAM_IN_CHAT
         assert generation_config.chat_format == 'chatml', _ERROR_BAD_CHAT_FORMAT
+        # 历史对话
         if history is None:
             history = []
         else:
             # make a copy of the user's input such that is is left untouched
             history = copy.deepcopy(history)
 
+        # stop_words_ids 是个二维列表, 用于指定停止序列
         if stop_words_ids is None:
             stop_words_ids = []
 
         max_window_size = kwargs.get('max_window_size', None)
         if max_window_size is None:
             max_window_size = generation_config.max_window_size
+        # 构建输入
         raw_text, context_tokens = make_context(
             tokenizer,
             query,
@@ -1130,6 +1148,7 @@ class QWenLMHeadModel(QWenPreTrainedModel):
             chat_format=generation_config.chat_format,
         )
 
+        # 扩展停止序列
         stop_words_ids.extend(get_stop_words_ids(
             generation_config.chat_format, tokenizer
         ))
@@ -1142,6 +1161,7 @@ class QWenLMHeadModel(QWenPreTrainedModel):
                     **kwargs,
                 )
 
+        # 调用解码函数
         response = decode_tokens(
             outputs[0],
             tokenizer,
@@ -1171,6 +1191,23 @@ class QWenLMHeadModel(QWenPreTrainedModel):
             generation_config: Optional[GenerationConfig] = None,
             **kwargs,
     ) -> Generator[str, Any, None]:
+        """流式版本的多轮对话
+
+        Args:
+            tokenizer (PreTrainedTokenizer): _description_
+            query (str): _description_
+            history (Optional[HistoryType]): _description_
+            system (str, optional): _description_. Defaults to "You are a helpful assistant.".
+            stop_words_ids (Optional[List[List[int]]], optional): _description_. Defaults to None.
+            logits_processor (Optional[LogitsProcessorList], optional): _description_. Defaults to None.
+            generation_config (Optional[GenerationConfig], optional): _description_. Defaults to None.
+
+        Returns:
+            _type_: _description_
+
+        Yields:
+            Generator[str, Any, None]: _description_
+        """
         generation_config = generation_config if generation_config is not None else self.generation_config
         assert generation_config.chat_format == 'chatml', _ERROR_BAD_CHAT_FORMAT
         if history is None:
@@ -1193,6 +1230,7 @@ class QWenLMHeadModel(QWenPreTrainedModel):
         stop_words_ids.extend(get_stop_words_ids(
             generation_config.chat_format, tokenizer
         ))
+        # TODO: 这个感觉不正常, stop_words_ids 已经被设置成列表, 不会是 None 了
         if stop_words_ids is not None:
             stop_words_logits_processor = StopWordsLogitsProcessor(
                 stop_words_ids=stop_words_ids,
@@ -1204,13 +1242,17 @@ class QWenLMHeadModel(QWenPreTrainedModel):
                 logits_processor.append(stop_words_logits_processor)
         input_ids = torch.tensor([context_tokens]).to(self.device)
 
+        # 这是哪里来的
         from transformers_stream_generator.main import NewGenerationMixin, StreamGenerationConfig
+        # 替换掉这些实现
         self.__class__.generate_stream = NewGenerationMixin.generate
         self.__class__.sample_stream = NewGenerationMixin.sample_stream
         stream_config = StreamGenerationConfig(**generation_config.to_dict(), do_stream=True)
 
+        # 重新整一个生成器
         def stream_generator():
             outputs = []
+            # 每次输出一个 token
             for token in self.generate_stream(
                     input_ids,
                     return_dict_in_generate=False,
@@ -1219,6 +1261,7 @@ class QWenLMHeadModel(QWenPreTrainedModel):
                     seed=-1,
                     **kwargs):
                 outputs.append(token.item())
+                # 并解码
                 yield tokenizer.decode(outputs, skip_special_tokens=True, errors='ignore')
 
         return stream_generator()
@@ -1239,6 +1282,7 @@ class QWenLMHeadModel(QWenPreTrainedModel):
     ) -> Union[GenerateOutput, torch.LongTensor]:
         generation_config = generation_config if generation_config is not None else self.generation_config
 
+        # 自定义处理 stop_words_ids 字段
         # Process stop_words_ids.
         stop_words_ids = kwargs.pop("stop_words_ids", None)
         if stop_words_ids is None and generation_config is not None:
@@ -1246,6 +1290,7 @@ class QWenLMHeadModel(QWenPreTrainedModel):
         if stop_words_ids is None:
             stop_words_ids = getattr(generation_config, "stop_words_ids", None)
 
+        # 添加逻辑处理函数
         if stop_words_ids is not None:
             stop_words_logits_processor = StopWordsLogitsProcessor(
                 stop_words_ids=stop_words_ids,
