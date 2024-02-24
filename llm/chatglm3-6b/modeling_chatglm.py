@@ -1028,6 +1028,23 @@ class ChatGLMForConditionalGeneration(ChatGLMPreTrainedModel):
     def chat(self, tokenizer, query: str, history: List[Dict] = None, role: str = "user",
              max_length: int = 8192, num_beams=1, do_sample=True, top_p=0.8, temperature=0.8, logits_processor=None,
              **kwargs):
+        """多轮对话的入口函数
+
+        Args:
+            tokenizer (_type_): _description_
+            query (str): _description_
+            history (List[Dict], optional): _description_. Defaults to None.
+            role (str, optional): _description_. Defaults to "user".
+            max_length (int, optional): _description_. Defaults to 8192.
+            num_beams (int, optional): _description_. Defaults to 1.
+            do_sample (bool, optional): _description_. Defaults to True.
+            top_p (float, optional): _description_. Defaults to 0.8.
+            temperature (float, optional): _description_. Defaults to 0.8.
+            logits_processor (_type_, optional): _description_. Defaults to None.
+
+        Returns:
+            _type_: _description_
+        """
         if history is None:
             history = []
         if logits_processor is None:
