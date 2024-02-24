@@ -812,7 +812,9 @@ class BaichuanForCausalLM(BaichuanPreTrainedModel):
 
     def chat(self, tokenizer, messages: List[dict], stream=False,
              generation_config: Optional[GenerationConfig]=None):
+        """多轮对话的实现"""
         generation_config = generation_config or self.generation_config
+        # 获取输入 ids
         input_ids = build_chat_input(self, tokenizer, messages, generation_config.max_new_tokens)
         if stream:
             streamer = TextIterStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
@@ -822,6 +824,7 @@ class BaichuanForCausalLM(BaichuanPreTrainedModel):
             )).start()
             return streamer
         else:
+            # 生成的时候, 也是用的 generate
             outputs = self.generate(input_ids, generation_config=generation_config)
             response = tokenizer.decode(outputs[0][len(input_ids[0]):], skip_special_tokens=True)
             return response

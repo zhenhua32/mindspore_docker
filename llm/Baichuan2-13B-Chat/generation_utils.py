@@ -5,20 +5,26 @@ import torch
 
 
 def build_chat_input(model, tokenizer, messages: List[dict], max_new_tokens: int=0):
+    """
+    用于构建多轮对话的输入
+    """
     def _parse_messages(messages, split_role="user"):
         system, rounds = "", []
         round = []
         for i, message in enumerate(messages):
+            # 系统消息应该是第一个位置
             if message["role"] == "system":
                 assert i == 0
                 system = message["content"]
                 continue
+            # 当时用用户消息, 就可以将前一轮的消息加入到rounds中
             if message["role"] == split_role and round:
                 rounds.append(round)
                 round = []
             round.append(message)
         if round:
             rounds.append(round)
+        # 返回系统消息和对话历史
         return system, rounds
 
     max_new_tokens = max_new_tokens or model.generation_config.max_new_tokens
@@ -31,9 +37,11 @@ def build_chat_input(model, tokenizer, messages: List[dict], max_new_tokens: int
     for round in rounds[::-1]:
         round_tokens = []
         for message in round:
+            # 用户消息需要加入 user_token_id
             if message["role"] == "user":
                 round_tokens.append(model.generation_config.user_token_id)
             else:
+                # 模型消息需要加入 assistant_token_id
                 round_tokens.append(model.generation_config.assistant_token_id)
             round_tokens.extend(tokenizer.encode(message["content"]))
         if len(history_tokens) == 0 or len(history_tokens) + len(round_tokens) <= max_history_tokens:
@@ -42,6 +50,7 @@ def build_chat_input(model, tokenizer, messages: List[dict], max_new_tokens: int
                 continue
         break
 
+    # 系统消息直接拼接就行, 无需特殊 token 分隔
     input_tokens = system_tokens + history_tokens
     if messages[-1]["role"] != "assistant":
         input_tokens.append(model.generation_config.assistant_token_id)
