@@ -220,22 +220,40 @@ class ChatGLMTokenizer(PreTrainedTokenizer):
         return prefix_tokens
 
     def build_single_message(self, role, metadata, message):
+        """构建单条消息"""
+        # 当前有这些 role. observation 应该是工具函数调用后返回的信息
         assert role in ["system", "user", "assistant", "observation"], role
+        # 角色标记开头 + metadata + 消息
         role_tokens = [self.get_command(f"<|{role}|>")] + self.tokenizer.encode(f"{metadata}\n")
         message_tokens = self.tokenizer.encode(message)
         tokens = role_tokens + message_tokens
         return tokens
 
     def build_chat_input(self, query, history=None, role="user"):
+        """基于对话历史构建输入
+
+        Args:
+            query (_type_): 当前的用户提问
+            history (list[dict], optional): 对话历史, 也是 role 和 content 字段. Defaults to None.
+            role (str, optional): 当前的角色. Defaults to "user".
+
+        Returns:
+            _type_: _description_
+        """
         if history is None:
             history = []
         input_ids = []
         for item in history:
             content = item["content"]
+            # role 是 system, 且有 tools 字段
             if item["role"] == "system" and "tools" in item:
+                # 这应该是系统字段加工具字段
                 content = content + "\n" + json.dumps(item["tools"], indent=4, ensure_ascii=False)
+            # 调用另一个函数添加输入
             input_ids.extend(self.build_single_message(item["role"], item.get("metadata", ""), content))
+        # 添加当前的用户提问
         input_ids.extend(self.build_single_message(role, "", query))
+        # 加入一个模型开始的标记
         input_ids.extend([self.get_command("<|assistant|>")])
         return self.batch_encode_plus([input_ids], return_tensors="pt", is_split_into_words=True)
 

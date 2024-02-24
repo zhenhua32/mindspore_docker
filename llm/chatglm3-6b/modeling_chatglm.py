@@ -52,6 +52,7 @@ def default_init(cls, *args, **kwargs):
 
 class InvalidScoreLogitsProcessor(LogitsProcessor):
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        """对 nan 的处理, token_id=5 估计是停止符"""
         if torch.isnan(scores).any() or torch.isinf(scores).any():
             scores.zero_()
             scores[..., 5] = 5e4
@@ -1001,27 +1002,36 @@ class ChatGLMForConditionalGeneration(ChatGLMPreTrainedModel):
         )
 
     def process_response(self, output, history):
+        """后处理"""
         content = ""
         history = deepcopy(history)
+        # 切分模型的回答, 可能有多次回答
         for response in output.split("<|assistant|>"):
+            # 这个需要切分成 metadata 和 content
             if "\n" in response:
                 metadata, content = response.split("\n", maxsplit=1)
             else:
                 metadata, content = "", response
+            # 如果 metadata 为空
             if not metadata.strip():
                 content = content.strip()
                 history.append({"role": "assistant", "metadata": metadata, "content": content})
+                # 强行替换了训练时间
                 content = content.replace("[[训练时间]]", "2023年")
             else:
                 history.append({"role": "assistant", "metadata": metadata, "content": content})
                 if history[0]["role"] == "system" and "tools" in history[0]:
+                    # 去掉前后的
                     content = "\n".join(content.split("\n")[1:-1])
+                    # 定义了一个函数, 但是没调用
                     def tool_call(**kwargs):
                         return kwargs
+                    # 获取到参数, 这就是函数的参数吗?
                     parameters = eval(content)
                     content = {"name": metadata.strip(), "parameters": parameters}
                 else:
                     content = {"name": metadata.strip(), "content": content}
+        # 这里返回的 content 是最后一个回答的内容
         return content, history
 
     @torch.inference_mode()
@@ -1045,6 +1055,7 @@ class ChatGLMForConditionalGeneration(ChatGLMPreTrainedModel):
         Returns:
             _type_: _description_
         """
+        # 初始化历史记录
         if history is None:
             history = []
         if logits_processor is None:
@@ -1052,14 +1063,19 @@ class ChatGLMForConditionalGeneration(ChatGLMPreTrainedModel):
         logits_processor.append(InvalidScoreLogitsProcessor())
         gen_kwargs = {"max_length": max_length, "num_beams": num_beams, "do_sample": do_sample, "top_p": top_p,
                       "temperature": temperature, "logits_processor": logits_processor, **kwargs}
+        # 基于对话历史, 构建输入
         inputs = tokenizer.build_chat_input(query, history=history, role=role)
         inputs = inputs.to(self.device)
+        # 有这些停止符序列
         eos_token_id = [tokenizer.eos_token_id, tokenizer.get_command("<|user|>"),
                         tokenizer.get_command("<|observation|>")]
         outputs = self.generate(**inputs, **gen_kwargs, eos_token_id=eos_token_id)
+        # 这里会把最后一个 token 去掉, 可能是 eos_token_id 中的一个?
         outputs = outputs.tolist()[0][len(inputs["input_ids"][0]):-1]
         response = tokenizer.decode(outputs)
+        # 加入当前的回答
         history.append({"role": role, "content": query})
+        # 还有个后期处理
         response, history = self.process_response(response, history)
         return response, history
 
