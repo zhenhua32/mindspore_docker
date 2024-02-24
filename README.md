@@ -43,3 +43,13 @@ x = ms.Tensor(np.ones([1,3,3,4]).astype(np.float32))
 y = ms.Tensor(np.ones([1,3,3,4]).astype(np.float32))
 print(ops.add(x, y))
 ```
+
+# 目录
+
+原本只是用来学习 mindspore 的, 但现在 mindspore 也不学了. 用来搞别的事情吧.
+
+创建一个 llm 目录, 用来保存各大模型的代码, 先读读它们的代码.
+
+
+
+
