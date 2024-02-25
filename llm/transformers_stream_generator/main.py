@@ -33,8 +33,10 @@ def setup_seed(seed):
 
 
 class StreamGenerationConfig(GenerationConfig):
+    """流式生成配置"""
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # 新的参数
         self.do_stream = kwargs.pop("do_stream", False)
 
 
@@ -132,6 +134,7 @@ class NewGenerationMixin(GenerationMixin):
             # legacy: users may modify the model configuration to control generation -- update the generation config
             # model attribute accordingly, if it was created from the model config
             if self.generation_config._from_model_config:
+                # 重新初始化下
                 new_generation_config = StreamGenerationConfig.from_model_config(
                     self.config
                 )
@@ -310,6 +313,7 @@ class NewGenerationMixin(GenerationMixin):
             and not is_constraint_gen_mode
             and not is_contrastive_search_gen_mode
         )
+        # 这里用到了 do_stream
         is_sample_gen_mode = (
             (generation_config.num_beams == 1)
             and (generation_config.num_beam_groups == 1)
@@ -855,6 +859,7 @@ class NewGenerationMixin(GenerationMixin):
                 " `stopping_criteria=StoppingCriteriaList(MaxLengthCriteria(max_length=max_length))` instead.",
                 UserWarning,
             )
+            # 这个居然没有导入
             stopping_criteria = validate_stopping_criteria(
                 stopping_criteria, max_length
             )
@@ -866,6 +871,7 @@ class NewGenerationMixin(GenerationMixin):
             if pad_token_id is not None
             else self.generation_config.pad_token_id
         )
+        # eos id 可以是多个
         eos_token_id = (
             eos_token_id
             if eos_token_id is not None
@@ -966,6 +972,7 @@ class NewGenerationMixin(GenerationMixin):
 
             # sample
             probs = nn.functional.softmax(next_token_scores, dim=-1)
+            # 从给定的概率分布中抽取样本, 使用多项式分布
             next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
 
             # finished sentences should have their next token be a padding token
@@ -974,9 +981,11 @@ class NewGenerationMixin(GenerationMixin):
                     raise ValueError(
                         "If `eos_token_id` is defined, make sure that `pad_token_id` is defined."
                     )
+                # 只计算未完成的序列, 即 unfinished_sequences 为 1 的序列, 其他部分用 pad_token_id 填充
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (
                     1 - unfinished_sequences
                 )
+            # 在这里输出了下一个 token
             yield next_tokens
             # update generated ids, model inputs, and length for next step
             input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
@@ -987,9 +996,12 @@ class NewGenerationMixin(GenerationMixin):
             # if eos_token was found in one sentence, set sentence to finished
             if eos_token_id is not None:
                 unfinished_sequences = unfinished_sequences.mul(
+                    # 如果 next_tokens 里面有 eos_token_id, 就设置为 0, 否则设置为 1
+                    # 预期应该是上面这样的, 但是我没法对应下面的代码, sum 之后可能大于 1
                     (sum(next_tokens != i for i in eos_token_id)).long()
                 )
 
+            # 停止生成
             # stop when each sentence is finished, or if we exceed the maximum length
             if unfinished_sequences.max() == 0 or stopping_criteria(input_ids, scores):
                 if not synced_gpus:
@@ -999,14 +1011,17 @@ class NewGenerationMixin(GenerationMixin):
 
 
 def init_stream_support():
+    """添加流式支持"""
     PreTrainedModel.generate = NewGenerationMixin.generate
     PreTrainedModel.sample_stream = NewGenerationMixin.sample_stream
 
 
 if __name__ == "__main__":
+    # 先看下使用示例
     from transformers import PreTrainedModel
     from transformers import AutoTokenizer, AutoModelForCausalLM
 
+    # 替换掉两个函数
     PreTrainedModel.generate = NewGenerationMixin.generate
     PreTrainedModel.sample_stream = NewGenerationMixin.sample_stream
     model = AutoModelForCausalLM.from_pretrained(
@@ -1045,9 +1060,10 @@ if __name__ == "__main__":
             repetition_penalty=1.2,
             early_stopping=True,
             seed=0,
-            do_stream=True,
+            do_stream=True,  # 这个就是新加的参数, 流式输出
         )
         stream_result = ""
+        # 加流式输出累加起来
         for x in generator:
             chunk = tokenizer.decode(x, skip_special_tokens=True)
             stream_result += chunk
